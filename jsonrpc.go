@@ -3,10 +3,12 @@ package jsonrpc
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 )
 
 // Client json rpc client
@@ -30,19 +32,37 @@ type request struct {
 type response struct {
 	Version string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result"`
-	Error   *errorObj       `json:"error"`
+	Error   *Error          `json:"error"`
 	ID      uint64          `json:"id"`
 }
 
-type errorObj struct {
+// Error rpc error
+type Error struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data"`
 }
 
+func (e *Error) Error() string {
+	return fmt.Sprintf("%d: %s", e.Code, e.Message)
+}
+
 // NewClient create a new jsonrpc client
-func NewClient(url string) (*Client, error) {
-	return &Client{URL: url, HTTPClient: http.DefaultClient}, nil
+func NewClient(uri string) (*Client, error) {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return nil, err
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return nil, errors.New("only http/https supported")
+	}
+
+	if u.Host == "" {
+		return nil, errors.New("invalid uri")
+	}
+
+	return &Client{URL: uri, HTTPClient: http.DefaultClient}, nil
 }
 
 func (c *Client) nextID() uint64 {
@@ -93,10 +113,6 @@ func (c *Client) Call(method string, args interface{}, reply interface{}) error 
 
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("http error: %s", resp.Status)
-	}
-
 	data, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return err
@@ -109,11 +125,21 @@ func (c *Client) Call(method string, args interface{}, reply interface{}) error 
 	var res response
 
 	if err = json.Unmarshal(data, &res); err != nil {
+		// non 200 response without valid json response
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("http error: %s", resp.Status)
+		}
 		return err
 	}
 
-	if res.Error != nil {
-		return fmt.Errorf("%d: %s", res.Error.Code, res.Error.Message)
+	// non 200 response with valid json response
+	if res.ID == r.ID && res.Error != nil {
+		return res.Error
+	}
+
+	// non 200 response without valid json response
+	if res.ID == r.ID && resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("http error: %s", resp.Status)
 	}
 
 	return json.Unmarshal(res.Result, &reply)
