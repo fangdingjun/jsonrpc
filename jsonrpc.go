@@ -1,50 +1,48 @@
 package jsonrpc
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
-	"log"
-	"net/http"
 	"net/url"
 )
 
 // Client json rpc client
 type Client struct {
-	// URL is remote url, ex http://username:password@192.168.1.3:1001/jsonrpc
-	URL string
-	// http client, default is http.DefaultClient
-	HTTPClient *http.Client
-	id         uint64
-	// Debug set to true, log the send/recevied http data
-	Debug bool
+	// URL is remote url,
+	// example
+	//     http://username:password@192.168.1.3:1001/jsonrpc
+	//     ws://192.168.0.1:9121/
+	URL       string
+	Transport Transport
 }
 
 type request struct {
 	Version string      `json:"jsonrpc"`
 	Method  string      `json:"method"`
 	Params  interface{} `json:"params"`
-	ID      uint64      `json:"id"`
+	ID      string      `json:"id"`
 }
 
 type response struct {
 	Version string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result"`
 	Error   *Error          `json:"error"`
-	ID      uint64          `json:"id"`
+	ID      string          `json:"id"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params"`
 }
 
 // Error rpc error
 type Error struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data"`
+	Code    int             `json:"code"`
+	Message string          `json:"message"`
+	Data    json.RawMessage `json:"data"`
 }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("%d: %s", e.Code, e.Message)
+	return fmt.Sprintf("code: %d, message: %s, data: %s",
+		e.Code, e.Message, e.Data)
 }
 
 // NewClient create a new jsonrpc client
@@ -53,94 +51,35 @@ func NewClient(uri string) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, errors.New("only http/https supported")
+	t := ""
+	switch u.Scheme {
+	case "http", "https":
+		t = "http"
+	case "ws", "wss":
+		t = "ws"
+	default:
+		return nil, fmt.Errorf("not supported %s", u.Scheme)
 	}
 
-	if u.Host == "" {
-		return nil, errors.New("invalid uri")
+	if t == "http" {
+		tr, _ := NewHTTPTransport(uri, nil)
+		return &Client{Transport: tr, URL: uri}, nil
 	}
-
-	return &Client{URL: uri, HTTPClient: http.DefaultClient}, nil
-}
-
-func (c *Client) nextID() uint64 {
-	c.id++
-	return c.id
+	if t == "ws" {
+		tr, _ := NewWebsocketTransport(uri)
+		return &Client{Transport: tr, URL: uri}, nil
+	}
+	return nil, errors.New("not supported")
 }
 
 // Call invoke a method with args and return reply
 func (c *Client) Call(method string, args interface{}, reply interface{}) error {
-	client := c.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
+	return c.Transport.Call(method, args, reply)
+}
 
-	if args == nil {
-		args = []string{}
-	}
+// Subscribe subscribe for change
+func (c *Client) Subscribe(method, notifyMethod string,
+	args interface{}, reply interface{}) (chan json.RawMessage, chan *Error, error) {
 
-	r := &request{
-		Version: "2.0",
-		Method:  method,
-		Params:  args,
-		ID:      c.nextID(),
-	}
-
-	data, err := json.Marshal(r)
-	if err != nil {
-		return err
-	}
-
-	if c.Debug {
-		log.Println("send", string(data))
-	}
-
-	body := bytes.NewBuffer(data)
-
-	req, err := http.NewRequest("POST", c.URL, body)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-
-	defer resp.Body.Close()
-
-	data, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-
-	if c.Debug {
-		log.Println("recevied", string(data))
-	}
-
-	var res response
-
-	if err = json.Unmarshal(data, &res); err != nil {
-		// non 200 response without valid json response
-		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("http error: %s", resp.Status)
-		}
-		return err
-	}
-
-	// non 200 response with valid json response
-	if res.ID == r.ID && res.Error != nil {
-		return res.Error
-	}
-
-	// non 200 response without valid json response
-	if res.ID == r.ID && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("http error: %s", resp.Status)
-	}
-
-	return json.Unmarshal(res.Result, &reply)
+	return c.Transport.Subscribe(method, notifyMethod, args, reply)
 }
