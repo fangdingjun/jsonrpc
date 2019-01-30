@@ -1,6 +1,7 @@
 package jsonrpc
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,7 +67,7 @@ func NewClient(uri string) (*Client, error) {
 		return &Client{Transport: tr, URL: uri}, nil
 	}
 	if t == "ws" {
-		tr, _ := NewWebsocketTransport(uri)
+		tr, _ := NewWebsocketTransport(context.Background(), uri)
 		return &Client{Transport: tr, URL: uri}, nil
 	}
 	return nil, errors.New("not supported")

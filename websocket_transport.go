@@ -1,7 +1,9 @@
 package jsonrpc
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -12,12 +14,14 @@ import (
 
 // WebsocketTransport json rpc over websocket
 type WebsocketTransport struct {
-	Conn     *websocket.Conn
-	URL      string
-	Mu       *sync.Mutex
-	inflight map[string]*inflightReq
-	nextid   uint64
-	err      error
+	Conn       *websocket.Conn
+	URL        string
+	Mu         *sync.Mutex
+	inflight   map[string]*inflightReq
+	nextid     uint64
+	err        error
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 }
 
 type inflightReq struct {
@@ -26,16 +30,19 @@ type inflightReq struct {
 	errch chan *Error
 }
 
+// ErrConnClosed error for connection closed
+var ErrConnClosed = errors.New("connection closed")
+
 var _ Transport = &WebsocketTransport{}
 
 // NewWebsocketTransport create a new websocket transport
-func NewWebsocketTransport(uri string) (Transport, error) {
-	dialer := &websocket.Dialer{}
-
-	conn, res, err := dialer.Dial(uri, nil)
+func NewWebsocketTransport(ctx context.Context, uri string) (Transport, error) {
+	var dialer = &websocket.Dialer{}
+	conn, res, err := dialer.DialContext(ctx, uri, nil)
 	if err != nil {
 		return nil, err
 	}
+	defer res.Body.Close()
 
 	if res.StatusCode != http.StatusSwitchingProtocols {
 		return nil, fmt.Errorf("http error %d", res.StatusCode)
@@ -47,16 +54,35 @@ func NewWebsocketTransport(uri string) (Transport, error) {
 		inflight: make(map[string]*inflightReq),
 		Mu:       new(sync.Mutex),
 	}
+	w.ctx, w.cancelFunc = context.WithCancel(ctx)
 	go w.readloop()
 	return w, nil
 }
 
+// Context return the context transport used
+func (h *WebsocketTransport) Context() context.Context {
+	return h.ctx
+}
+
 func (h *WebsocketTransport) readloop() {
+	defer func() {
+		//log.Debugf("close websocket connection")
+		h.Conn.Close()
+		//log.Debugf("cancel context")
+		h.cancelFunc()
+	}()
+
 	for {
+		select {
+		case <-h.ctx.Done():
+			return
+		default:
+		}
 		var res response
 
 		_, data, err := h.Conn.ReadMessage()
 		if err != nil {
+			log.Errorln(err)
 			h.err = err
 			return
 		}
@@ -122,6 +148,13 @@ func (h *WebsocketTransport) nextID() uint64 {
 
 // Call call a remote method
 func (h *WebsocketTransport) Call(method string, args interface{}, reply interface{}) error {
+
+	select {
+	case <-h.ctx.Done():
+		return ErrConnClosed
+	default:
+	}
+
 	if h.err != nil {
 		return h.err
 	}

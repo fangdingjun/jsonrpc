@@ -67,7 +67,7 @@ func (h *HTTPTransport) Call(method string, args interface{}, reply interface{})
 
 	log.Debugf("send %s", data)
 
-	body := bytes.NewBuffer(data)
+	body := bytes.NewReader(data)
 
 	req, err := http.NewRequest("POST", h.URL, body)
 	if err != nil {
