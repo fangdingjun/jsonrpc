@@ -100,6 +100,7 @@ func (h *WebsocketTransport) readloop() {
 			h.Mu.Unlock()
 
 			if !ok {
+				log.Warnf("handler for id %s not exists", res.ID)
 				continue
 			}
 			if res.Error != nil {
@@ -125,6 +126,7 @@ func (h *WebsocketTransport) readloop() {
 			h.Mu.Unlock()
 
 			if !ok {
+				log.Warnf("handler for method %s not exists", res.Method)
 				continue
 			}
 
@@ -172,12 +174,6 @@ func (h *WebsocketTransport) Call(method string, args interface{}, reply interfa
 		return err
 	}
 
-	log.Debugf("write %s", d)
-
-	if err := h.Conn.WriteMessage(websocket.TextMessage, d); err != nil {
-		return err
-	}
-
 	ch := make(chan json.RawMessage, 1)
 	errch := make(chan *Error, 1)
 
@@ -188,6 +184,15 @@ func (h *WebsocketTransport) Call(method string, args interface{}, reply interfa
 		errch: errch,
 	}
 	h.Mu.Unlock()
+
+	log.Debugf("write %s", d)
+
+	if err := h.Conn.WriteMessage(websocket.TextMessage, d); err != nil {
+		h.Mu.Lock()
+		delete(h.inflight, id)
+		h.Mu.Unlock()
+		return err
+	}
 
 	select {
 	case data := <-ch:
@@ -202,11 +207,6 @@ func (h *WebsocketTransport) Call(method string, args interface{}, reply interfa
 func (h *WebsocketTransport) Subscribe(method string, notifyMethod string,
 	args interface{}, reply interface{}) (chan json.RawMessage, chan *Error, error) {
 
-	err := h.Call(method, args, reply)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	ch := make(chan json.RawMessage)
 	errch := make(chan *Error)
 
@@ -217,6 +217,14 @@ func (h *WebsocketTransport) Subscribe(method string, notifyMethod string,
 		id:    notifyMethod,
 	}
 	h.Mu.Unlock()
+
+	err := h.Call(method, args, reply)
+	if err != nil {
+		h.Mu.Lock()
+		delete(h.inflight, notifyMethod)
+		h.Mu.Unlock()
+		return nil, nil, err
+	}
 
 	return ch, errch, nil
 }
