@@ -17,7 +17,7 @@ type WebsocketTransport struct {
 	Conn       *websocket.Conn
 	URL        string
 	Mu         *sync.Mutex
-	inflight   map[string]*inflightReq
+	inflight   map[uint64]*inflightReq
 	nextid     uint64
 	err        error
 	ctx        context.Context
@@ -52,7 +52,7 @@ func NewWebsocketTransport(ctx context.Context, uri string) (Transport, error) {
 	w := &WebsocketTransport{
 		Conn:       conn,
 		URL:        uri,
-		inflight:   make(map[string]*inflightReq),
+		inflight:   make(map[uint64]*inflightReq),
 		subscribes: make(map[string][]*inflightReq),
 		Mu:         new(sync.Mutex),
 	}
@@ -96,7 +96,7 @@ func (h *WebsocketTransport) readloop() {
 			return
 		}
 
-		if res.ID != "" {
+		if res.ID != 0 {
 			// response
 
 			h.Mu.Lock()
@@ -173,7 +173,7 @@ func (h *WebsocketTransport) Call(method string, args interface{}, reply interfa
 		return h.err
 	}
 
-	id := fmt.Sprintf("%d", h.nextID())
+	id := h.nextID()
 	req := request{
 		ID:      id,
 		Version: "2.0",
@@ -191,7 +191,7 @@ func (h *WebsocketTransport) Call(method string, args interface{}, reply interfa
 
 	h.Mu.Lock()
 	h.inflight[id] = &inflightReq{
-		id:    id,
+		id:    fmt.Sprintf("%d", id),
 		ch:    ch,
 		errch: errch,
 	}

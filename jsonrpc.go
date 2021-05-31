@@ -22,14 +22,14 @@ type request struct {
 	Version string      `json:"jsonrpc"`
 	Method  string      `json:"method"`
 	Params  interface{} `json:"params"`
-	ID      string      `json:"id"`
+	ID      uint64      `json:"id"`
 }
 
 type response struct {
 	Version string          `json:"jsonrpc"`
 	Result  json.RawMessage `json:"result"`
 	Error   *Error          `json:"error"`
-	ID      string          `json:"id"`
+	ID      uint64          `json:"id"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params"`
 }
