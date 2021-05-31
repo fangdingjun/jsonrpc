@@ -47,8 +47,12 @@ func (h *HTTPTransport) nextID() uint64 {
 	return h.nextid
 }
 
-// Call call a remote method
 func (h *HTTPTransport) Call(method string, args interface{}, reply interface{}) error {
+	return h.CallWithHeader(method, args, reply, nil)
+}
+
+// Call call a remote method
+func (h *HTTPTransport) CallWithHeader(method string, args interface{}, reply interface{}, header http.Header) error {
 	if args == nil {
 		args = []string{}
 	}
@@ -57,7 +61,7 @@ func (h *HTTPTransport) Call(method string, args interface{}, reply interface{})
 		Version: "2.0",
 		Method:  method,
 		Params:  args,
-		ID:      fmt.Sprintf("%d", h.nextID()),
+		ID:      h.nextID(),
 	}
 
 	data, err := json.Marshal(r)
@@ -72,6 +76,14 @@ func (h *HTTPTransport) Call(method string, args interface{}, reply interface{})
 	req, err := http.NewRequest("POST", h.URL, body)
 	if err != nil {
 		return err
+	}
+
+	if header != nil {
+		for k, v := range header {
+			for _, v1 := range v {
+				req.Header.Add(k, v1)
+			}
+		}
 	}
 
 	req.Header.Set("Content-Type", "application/json")
