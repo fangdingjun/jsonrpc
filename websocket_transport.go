@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"sync"
 
-	log "github.com/fangdingjun/go-log"
+	log "github.com/fangdingjun/go-log/v5"
 	"github.com/gorilla/websocket"
 )
 

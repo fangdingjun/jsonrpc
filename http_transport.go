@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"sync"
 
-	log "github.com/fangdingjun/go-log"
+	log "github.com/fangdingjun/go-log/v5"
 )
 
 // HTTPTransport json rpc over http
@@ -107,7 +107,7 @@ func (h *HTTPTransport) CallWithHeader(method string, args interface{}, reply in
 	if err = json.Unmarshal(data, &res); err != nil {
 		// non 200 response without valid json response
 		if resp.StatusCode != http.StatusOK {
-			return fmt.Errorf("http error: %s", resp.Status)
+			return fmt.Errorf("http error: %s, %s", resp.Status, data)
 		}
 		return err
 	}
@@ -119,7 +119,7 @@ func (h *HTTPTransport) CallWithHeader(method string, args interface{}, reply in
 
 	// non 200 response without valid json response
 	if res.ID == r.ID && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("http error: %s", resp.Status)
+		return fmt.Errorf("http error: %s, %s", resp.Status, data)
 	}
 
 	return json.Unmarshal(res.Result, &reply)

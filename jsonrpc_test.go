@@ -3,7 +3,7 @@ package jsonrpc
 import (
 	"testing"
 
-	log "github.com/fangdingjun/go-log"
+	log "github.com/fangdingjun/go-log/v5"
 )
 
 func TestCall(t *testing.T) {
